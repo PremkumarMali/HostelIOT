@@ -30,7 +30,8 @@ Models land in `ml/models/*.joblib` (git-ignored; re-train any time, results are
 ## The three layers
 
 1. **Isolation Forest** (`train_anomaly.py`): trained only on normal data, so it needs no fault labels and
-   can catch faults nobody planned for. Threshold = 99.9th percentile of normal scores, 2 readings in a row.
+   can catch faults nobody planned for. Threshold = 99.9th percentile of normal scores, 5 readings in a row
+   (`config/alert_rules.yaml`; with 2, the daily 06:00 water ramp caused borderline false alarms).
 2. **Random Forest classifier** (`train_fault_classifier.py`): names the fault (`hvac_stuck_on`, `leak`,
    `compressor_failure`, `door_left_open`). `sensor_offline` has no readings to classify; the heartbeat
    rule (no data for 3 min) catches it.
@@ -46,7 +47,7 @@ lowest flow of the last 10 min), `above_cycle_run` (fridge beyond its normal com
 |---|---|---|---|---|---|
 | AC stuck on in empty room | Random Forest | 1.00 | 1.00 | 0 | 13 min |
 | Water leak (incl. drips) | Random Forest | 0.93 | 1.00 | 0 | 1 min |
-| Compressor failure | Trend forecast | 0.71 | 1.00 | 0 | 9 min, **8 min before the breach** |
+| Compressor failure | Trend forecast | 0.71 | 1.00 | 0 | 9 min, **6 min before the breach** |
 | Door left open | Random Forest | 1.00 | 1.00 | 0 | 4 min |
 | Sensor offline | Heartbeat rule | 1.00 | 1.00 | 0 | 3 min |
 
@@ -61,10 +62,12 @@ F1 1.00).
   taught the classifier to flag normal behaviour: 11 false alarms/day. Skipping them: 0.
 - **Physics beats generic features.** Adding one feature, "still cooling below setpoint", made the AC-fault
   classifier perfect.
-- **Isolation Forest is a safety net, not the main signal.** It finds every AC fault but also flags rare
-  normal situations (5.7 false alarms/day on rooms), so the AI engine uses it to raise *warnings* and lets
-  the classifier name the fault.
-- **Forecasts must ignore normal cycles.** Without the "outer 20 % of the band, rising 4 readings, door
-  closed" guard, the trend forecast raised 145 false alarms a day.
+- **Isolation Forest is a safety net, not the main signal.** On rooms it flagged rare-but-normal cooling
+  (precision 0.34), so its own alerts are off for rooms. On water and cold chain, requiring 5 unusual
+  minutes in a row took its false alarms to 0/day (precision 1.00) at the cost of some recall; the rules,
+  Random Forest and forecast catch what it misses.
+- **Forecasts must ignore normal cycles.** Without the "outer 15 % of the band, rising 4 readings, door
+  closed" guard, the trend forecast raised 145 false alarms a day. The first live run (Phase 7) still found
+  one: the bar fridge's compressor overshoots to 19 % of its band, so the edge moved from 20 % to 15 %.
 - **Limits:** synthetic faults are cleaner than real ones; 2 of 7 compressor failures ended before the
   forecast could fire; small drips are the hardest leaks. Real hotel data (ESP32 sensors) is the next step.

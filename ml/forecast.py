@@ -5,7 +5,8 @@ band, the time to reach the edge is (distance to edge) / slope. This warns BEFOR
 breach.
 
 Normal operation also has rising stretches (compressor off, door opened), so we only warn when:
-  - the unit is in the outer 20 % of its band (normal cycling stays inside 25-75 %),
+  - the unit is in the outer 15 % of its band (normal cycling reaches ~19-78 %: the compressor
+    overshoots a little at both ends, measured on the live bar fridge and blast freezer),
   - temperature has risen at every one of the last 4 readings (a steady trend, not noise),
   - the door has been closed for the last 3 readings (a door bump is not a failure),
   - and the predicted breach is within 30 minutes.
@@ -18,7 +19,7 @@ from features import rolling_slope
 
 WINDOW = 8          # readings (= minutes) used for the trend line
 HORIZON_MIN = 30    # warn if the breach is predicted within this many minutes
-EDGE = 0.80         # band position (0 = bottom, 1 = top) beyond which normal cycling never goes
+EDGE = 0.85         # band position (0 = bottom, 1 = top) beyond which normal cycling never goes
 RISING = 4          # readings in a row that must move toward the edge
 
 
@@ -69,11 +70,13 @@ def forecast_flags(df):
 
 if __name__ == "__main__":
     closed = [False] * 8
-    # walk-in chiller (0-5 °C) warming 0.1 °C/min, now at 4.1 °C -> breach in ~9 min
-    warn, eta = forecast([3.4 + 0.1 * i for i in range(8)], closed, 0, 5)
-    assert warn and 8 <= eta <= 10, (warn, eta)
+    # walk-in chiller (0-5 °C) warming 0.1 °C/min, now at 4.4 °C -> breach in ~6 min
+    warn, eta = forecast([3.7 + 0.1 * i for i in range(8)], closed, 0, 5)
+    assert warn and 5 <= eta <= 7, (warn, eta)
+    # bar fridge (1-5 °C) at the bottom of a normal compressor cycle (1.76 °C, falling): no warning
+    assert not forecast([3.55, 3.29, 3.03, 2.82, 2.52, 2.29, 2.07, 1.76], closed, 1, 5)[0]
     # normal cycling around the middle of the band: no warning
     assert not forecast([2.0 + 0.1 * i for i in range(8)], closed, 0, 5)[0]
     # same rise but the door was just opened: no warning
-    assert not forecast([3.3 + 0.1 * i for i in range(8)], closed[:-1] + [True], 0, 5)[0]
+    assert not forecast([3.7 + 0.1 * i for i in range(8)], closed[:-1] + [True], 0, 5)[0]
     print(f"ok: rising walk-in -> warn, breach in {eta} min")

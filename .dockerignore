@@ -1,9 +1,10 @@
-# Keep the build context small (ml/data alone is ~5 GB)
+# Keep the build context small (ml/data alone is ~5 GB). ml/models IS needed (AI engine).
 .git
 .venv
 .claude
+.gstack
 **/__pycache__
 **/node_modules
 ml/data
-ml/models
+ml/notebooks
 .env

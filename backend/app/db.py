@@ -49,6 +49,7 @@ class Store:
                            water_l=0.0, cold_total=0, cold_ok=0)
         self.alerts = {}          # alert id -> Alert
         self.notifications = []   # Notification, oldest first
+        self.breach_eta = {}      # cold device_id -> minutes until predicted breach (set by the AI engine)
         self.dirty = True         # summary changed since last WebSocket push
 
     # ---------- incoming data ----------
@@ -88,6 +89,34 @@ class Store:
         last = datetime.fromisoformat(p["ts"]) if p else self.first_ts   # never seen: silent since start
         return self.sim_now - last >= timedelta(minutes=self.silent_min)
 
+    def device_ids(self):
+        return ([f"thermo-{r}" for r in self.rooms] + [z["device_id"] for z in self.zones.values()]
+                + [u["device_id"] for u in self.units.values()])
+
+    def locate(self, did):
+        """device_id -> (dashboard section, human location, room number or None)."""
+        pretty = lambda area: area.replace("floor", "Floor ").title()          # "floor2" -> "Floor 2"
+        if did.startswith("thermo-") and did[7:] in self.rooms:
+            room = did[7:]
+            return "Guest rooms", f"Room {room} · {pretty(self.rooms[room])}", room
+        for z in self.zones.values():
+            if z["device_id"] == did:
+                return "Water & leaks", f"{z['name']} · {pretty(z['area'])}", None
+        for u in self.units.values():
+            if u["device_id"] == did:
+                return "Kitchen cold chain", f"{u['name']} · {pretty(u['area'])}", None
+        return "Sensors", did, None
+
+    def silent_devices(self):
+        """device_id -> whole minutes without data, for every configured device that is offline."""
+        out = {}
+        for did in self.device_ids():
+            if self.offline(did):
+                p = self.latest.get(did)
+                last = datetime.fromisoformat(p["ts"]) if p else self.first_ts
+                out[did] = int((self.sim_now - last).total_seconds() // 60)
+        return out
+
     def has_open_alert(self, did):
         return any(a.source == did and a.status == "open" for a in self.alerts.values())
 
@@ -123,8 +152,7 @@ class Store:
             return "breach"
         if p["door_open"]:
             return "door_open"
-        # TODO Phase 7: replace with the trend forecast ("breach in ~N min")
-        if p["temp_c"] > p["safe_max_c"] - 0.5 or p["temp_c"] < p["safe_min_c"] + 0.5:
+        if did in self.breach_eta:                   # the AI trend forecast predicts a breach soon
             return "at_risk"
         return "ok"
 
@@ -147,6 +175,7 @@ class Store:
         p = self.latest.get(u["device_id"], {})
         return {**p, "device_id": u["device_id"], "unit": unit_id, "name": u["name"], "area": u["area"],
                 "safe_min_c": u["safe_min_c"], "safe_max_c": u["safe_max_c"],
+                "breach_in_min": self.breach_eta.get(u["device_id"]),
                 "status": self.cold_status(u["device_id"], p)}
 
     def device_view(self, p):
@@ -177,8 +206,7 @@ class Store:
         rate = t["occ_kwh"] / t["occ_min"] if t["occ_min"] else 0.0
         saved_kwh = max(0.0, rate * t["vacant_sold_min"] - t["vacant_kwh"])
         open_alerts = [a for a in self.alerts.values() if a.status == "open"]
-        all_ids = ([f"thermo-{r}" for r in self.rooms] + [z["device_id"] for z in self.zones.values()]
-                   + [u["device_id"] for u in self.units.values()])
+        all_ids = self.device_ids()
         return {
             "sim_time": self.sim_now.isoformat() if self.sim_now else None,
             "streams": len(self.latest),

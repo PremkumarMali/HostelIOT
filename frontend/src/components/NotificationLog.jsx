@@ -1,38 +1,56 @@
-// Right rail: every WhatsApp / SMS sent to management, with delivery ticks.
-const STATUS = {
-  queued: ['○', 'Queued'],
-  sent: ['✓', 'Sent'],
-  delivered: ['✓✓', 'Delivered'],
-  failed: ['✕', 'Failed'],
+// Right rail: notifications to hotel management, shown on the dashboard
+// (WhatsApp / SMS are on hold). Each one says WHICH SECTION and WHICH ROOM / UNIT;
+// clicking it jumps to that place on the dashboard.
+export const NOTE = {
+  critical: { icon: '!', label: 'Critical' },
+  warning: { icon: '▲', label: 'Warning' },
+  info: { icon: 'i', label: 'Update' },
+  resolved: { icon: '✓', label: 'Resolved' },
 }
 const hhmm = (ts) => ts.slice(11, 16)
 
-export default function NotificationLog({ notifications }) {
+export function NoteBody({ n }) {
+  const lines = n.text.split('\n').slice(2) // line 0 = title, line 1 = "Where: ..." (shown as chips)
+  return (
+    <>
+      <div className="note__where">
+        <span className="note__section">{n.section}</span>
+        <span className="note__loc">{n.location}</span>
+      </div>
+      <div className="note__title">{n.title}</div>
+      {lines.map((l, i) => <div key={i} className="note__text">{l}</div>)}
+    </>
+  )
+}
+
+export default function NotificationLog({ notifications, onOpen }) {
   if (!notifications.length) {
     return (
       <div className="empty empty--small">
-        <div className="empty__text">No messages yet. Managers are messaged automatically when the AI raises an alert.</div>
+        <div className="empty__text">
+          No notifications yet. When the AI finds a fault, managers see here which section and which room or unit it is in.
+        </div>
       </div>
     )
   }
   return (
-    <ul className="msgs">
+    <ul className="notes">
       {[...notifications].reverse().map((n) => {
-        const [tick, text] = STATUS[n.status]
+        const s = NOTE[n.severity]
         return (
-          <li key={n.id} className="msg">
-            <span className={`badge badge--${n.channel}`}>{n.channel === 'whatsapp' ? 'WA' : 'SMS'}</span>
-            <div className="msg__body">
-              <div className="msg__top">
-                <span className="msg__to">{n.recipient}</span>
-                <span className="msg__num num">{n.to_masked}</span>
-                <span className="msg__time num">{hhmm(n.ts)}</span>
-              </div>
-              <div className="msg__text" title={n.text}>{n.text}</div>
-            </div>
-            <span className={`ticks ticks--${n.status}`} title={text}>
-              <span aria-hidden="true">{tick}</span><span className="sr-only">{text}</span>
-            </span>
+          <li key={n.id}>
+            <button type="button" className={`note note--${n.severity}`} onClick={() => onOpen(n)}
+              title="Show on the dashboard">
+              <span className="note__icon" aria-hidden="true">{s.icon}</span>
+              <span className="note__main">
+                <span className="note__top">
+                  <span className="note__sev">{s.label}</span>
+                  <span className="note__time num">{hhmm(n.ts)}</span>
+                </span>
+                <NoteBody n={n} />
+                <span className="note__for">For: {n.recipients.join(', ') || 'Duty team'}</span>
+              </span>
+            </button>
           </li>
         )
       })}

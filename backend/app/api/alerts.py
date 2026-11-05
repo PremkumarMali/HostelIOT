@@ -5,8 +5,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.app.ai import manager
 from backend.app.db import store
-from backend.app.websocket import hub
 
 router = APIRouter(prefix="/api", tags=["alerts"])
 
@@ -23,12 +23,11 @@ async def list_alerts(status: Literal["open", "acknowledged", "resolved"] | None
 
 @router.post("/alerts/{alert_id}/ack")
 async def acknowledge(alert_id: str, body: AckRequest | None = None):
-    # TODO Phase 7: route through ai_engine.alert_manager (also stops escalation)
     # TODO (production): require a logged-in user; the demo dashboard has no auth
-    alert = store.ack(alert_id, (body or AckRequest()).by, store.sim_now or datetime.now().astimezone())
+    # The alert manager records the ack, stops escalation and tells every dashboard.
+    alert = manager.acknowledge(alert_id, (body or AckRequest()).by, store.sim_now or datetime.now().astimezone())
     if alert is None:
         raise HTTPException(404, "unknown alert")
-    hub.send({"type": "alert", "data": alert.model_dump(mode="json")})
     return alert
 
 

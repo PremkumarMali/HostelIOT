@@ -1,218 +1,221 @@
 # hotel-iot-ai
 
-Smart-hotel IoT + AI monitoring demo for a 20-room property in Bengaluru:
+**Smart-hotel IoT + AI monitoring** for a 20-room property in Bengaluru, with three IoT demos on one live
+operations console:
 
-1. **Smart room energy** — thermostats + occupancy (continuous data)
-2. **Water & leaks** — flow meters + leak probes (event data)
-3. **Kitchen cold chain** — fridge/freezer temps + door sensors (compliance data)
+| # | Demo | Sensors | Data style |
+|---|---|---|---|
+| 1 | **Smart room energy** | thermostat + occupancy (+ PMS "sold") in 20 rooms | continuous, every minute |
+| 2 | **Water & leaks** | flow meter + leak probe in 5 zones | event-driven (leak = alarm) |
+| 3 | **Kitchen cold chain** | temperature + door sensor in 5 fridges/freezers | compliance (stay in the safe band) |
 
-An AI layer (rules + Isolation Forest + trend forecast + Random Forest fault classifier) detects faults
-and notifies management over WhatsApp and SMS. Full spec: [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md).
+An **AI layer** watches all 30 sensor streams (rules + Random Forest + Isolation Forest + trend forecast), raises
+alerts, escalates unacknowledged critical ones to the General Manager, and **notifies management on the
+dashboard**: which section, which room or unit, what to do, and who should act. (WhatsApp / SMS: on hold.)
+
+![Dashboard with a water leak and an AC fault](docs/screenshots/dashboard-faults.png)
+
+## Quick start
+
+Needs **Docker Desktop** ("Engine running").
+
+```powershell
+copy .env.example .env            # defaults work as-is
+docker compose up -d --build      # first build ~3-5 min
+```
+
+Open **http://localhost:8080**, wait ~2 minutes for the charts to fill, then press a button in the
+**Fault simulator** bar (e.g. *Water leak*): within seconds a notification pops up saying *Water & leaks ·
+Laundry · Basement*. Stop with `docker compose down` (`-v` also wipes stored data).
+
+**Presenting?** Follow [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md): a 7-minute walkthrough with what to press,
+what to say, and likely viva questions.
+
+> Time is simulated 30x faster: **1 hotel minute = 2 real seconds** (10-minute escalation = 20 s).
+
+## Architecture
 
 ```
-simulator ──MQTT──▶ Mosquitto ──▶ ingestion ──▶ InfluxDB 3
-                                       │
-                                  ai_engine ──▶ notifier (WhatsApp / SMS)
-                                       │
-                            FastAPI + WebSocket ──▶ React dashboard
+ simulator (30 sensors, fault injector)
+      │ MQTT  dt/hotel/blr01/{area}/{location}/{device}/telemetry
+      ▼
+ Mosquitto ──▶ backend (FastAPI) ───────────────────────────────▶ InfluxDB 3 (full history)
+               │ ingestion: validate (Pydantic) ─▶ live store (now + last 60 min)
+               │ AI engine, every hotel minute:
+               │   rules · Random Forest · Isolation Forest · trend forecast
+               │   └▶ alert manager: dedupe · upgrade · escalate · ack · resolve
+               │        └▶ notifier: section + room/unit + who should act
+               ▼ REST + WebSocket
+ React dashboard (nginx :8080)
 ```
 
-## Status
-
-| Phase | What | State |
+| Container | Port | |
 |---|---|---|
-| 1 | Setup: compose, Mosquitto, InfluxDB, config | done |
-| 2 | Simulator + fault injector | done |
-| 3 | Ingestion → InfluxDB | done |
-| 4 | Backend API + WebSocket | done |
-| 5 | React dashboard | done |
-| 6 | ML training + evaluation | done, see [ml/README.md](ml/README.md) |
-| 7 | AI engine + alert manager | — |
-| 8 | Notifier (WhatsApp / SMS) | — |
-| 9 | Tests + polish | — |
+| frontend (nginx + React) | **8080** | the dashboard |
+| backend (FastAPI) | 8000 | API docs at http://localhost:8000/docs |
+| mosquitto | 1883 | MQTT broker (anonymous, demo only) |
+| influxdb (3 Core) | 8181 | time-series DB (`--without-auth`, demo only) |
+| simulator | internal | fault API reachable only by the backend |
 
-## Requirements
+## Project layout
 
-- Docker Desktop (with `docker compose`)
-- Python 3.11+ (simulator, ML) and Node 20+ (dashboard) — from later phases
+| Folder | What's inside |
+|---|---|
+| `simulator/` | sensor models for rooms, water and fridges, plus the fault injector (CLI + HTTP) |
+| `ingestion/` | MQTT consumer, Pydantic schemas, InfluxDB writer (line protocol over HTTP) |
+| `backend/app/` | FastAPI app, live store, REST + WebSocket, glue to the AI engine (`ai.py`) |
+| `ai_engine/` | `rules.py`, `detector.py`, `alert_manager.py`, `model_loader.py` |
+| `notifier/` | dashboard notifications (`dashboard.py`) and message text (`templates.py`) |
+| `ml/` | synthetic data generator, features, training, forecast, evaluation ([ml/README.md](ml/README.md)) |
+| `frontend/` | React + Vite dashboard, plain CSS tokens, hand-built SVG charts |
+| `config/` | `devices.yaml`, `alert_rules.yaml`, `contacts.yaml` |
+| `tests/` | pytest: simulator, ingestion, backend, rules, detector, notifier |
+| `docs/` | [PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md), [DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md), screenshots |
 
-## Run (Phase 1)
+## The AI layer
 
-```powershell
-copy .env.example .env        # defaults work as-is; NOTIFY_DRY_RUN=true
-docker compose up -d
-docker compose ps             # mosquitto + influxdb should be "running"
-```
-
-| Service | Port | Notes |
+| Layer | Raises | How |
 |---|---|---|
-| Mosquitto (MQTT) | 1883 | anonymous, local demo only |
-| InfluxDB 3 Core | 8181 | started with `--without-auth` for the demo |
+| **Rules** (`config/alert_rules.yaml`) | critical: leak probe wet, fridge out of band 3+ min · warning: flow > 2x normal 5 min, door open 5 min, AC cooling an empty room below setpoint, battery < 15 %, no data 3 min | fixed limits |
+| **Random Forest** | names the fault: `leak`, `compressor_failure`, `door_left_open`, `hvac_stuck_on` | trained on labelled synthetic faults |
+| **Isolation Forest** | "Unusual readings" nobody labelled (water + cold chain) | trained on normal data only; 5 unusual minutes in a row |
+| **Trend forecast** | "Breach predicted in ~N min" → unit shows **At risk** | line through the last 8 readings |
 
-### Smoke test
+The **alert manager** keeps one alert per device + fault (every layer that agrees is listed on it), upgrades a
+warning to critical in place, **escalates** a critical alert not acknowledged in 10 min to the GM, and resolves
+alerts 5 min after the fault is gone. Every important event becomes a **notification** with section, location
+(`Room 207 · Floor 2`, `Laundry · Basement`, `Walk-in chiller · Kitchen`), action and the roles that should act
+(`config/contacts.yaml`). Click a notification or alert to jump to that room or unit.
 
-MQTT (two terminals):
-```powershell
-docker compose exec mosquitto mosquitto_sub -t "dt/hotel/#" -v
-docker compose exec mosquitto mosquitto_pub -t "dt/hotel/blr01/kitchen/walkin/cold-walkin/telemetry" -m '{"temp_c":3.2}'
-```
+**Results on an unseen synthetic test week** (details: [ml/README.md](ml/README.md), [ml/evaluation_report.md](ml/evaluation_report.md)):
 
-InfluxDB (the database is created on first write):
-```powershell
-curl.exe -X POST "http://localhost:8181/api/v3/write_lp?db=hotel" --data-binary "smoke,device=test value=1"
-curl.exe "http://localhost:8181/api/v3/query_sql?db=hotel&q=SELECT+*+FROM+smoke"
-```
+| Fault | Best method | Caught | False alarms/day | Detected after |
+|---|---|---|---|---|
+| AC on in empty room | Random Forest | 21/21 | 0 | 13 min |
+| Water leak (incl. drips) | Random Forest | 13/14 | 0 | 1 min |
+| Chiller compressor failure | Trend forecast | 5/7 | 0 | **6 min before the breach** |
+| Door left open | Random Forest | 14/14 | 0 | 4 min |
+| Sensor offline | Heartbeat rule | 14/14 | 0 | 3 min |
 
-Stop: `docker compose down` (add `-v` to wipe stored data).
+Real public data: Isolation Forest caught 3/4 failures in the NAB machine-temperature series; Random Forest scored
+macro F1 0.83 on real LBNL fan-coil faults (1.00 on "cooling valve stuck open"); UCI room data calibrated the
+simulator's room physics.
 
-## Run the simulator (Phase 2)
-
-30 fake sensors (20 thermostats, 5 water meters, 5 fridges). 1 tick = 1 simulated minute, every 2 s by default.
+## Tests
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\pip install -r simulator\requirements.txt pytest
-
-.\.venv\Scripts\python simulator\main.py                    # publish to Mosquitto
-.\.venv\Scripts\python simulator\main.py --stdout --ticks 2 # no broker needed: print messages
-.\.venv\Scripts\python simulator\main.py --fault leak:laundry --start 2026-10-24T22:00
-.\.venv\Scripts\python -m pytest tests                      # simulator tests
+.\.venv\Scripts\pip install -r backend\requirements.txt -r ml\requirements.txt pytest httpx
+.\.venv\Scripts\python -m pytest                  # 32 tests, ~3 min (the detector tests run the simulator)
 ```
 
-| Fault (`--fault type[:target]`) | Default target | What happens |
-|---|---|---|
-| `leak` | `laundry` | flow +2x normal, leak probe wet after 2 min |
-| `compressor_failure` | `walkin` | compressor stops, temp climbs ~0.1 °C/min out of band |
-| `door_left_open` | `pastry` | door stays open, temp climbs |
-| `hvac_stuck_on` | `207` | room empty but AC keeps running |
-| `sensor_offline` | `cold-bar` | device stops publishing |
-
-Fault API (while the simulator runs, bound to 127.0.0.1:8001):
-```powershell
-curl.exe localhost:8001/status
-curl.exe -X POST localhost:8001/faults -d '{\"type\":\"leak\",\"target\":\"kitchen\"}'
-curl.exe -X POST localhost:8001/clear  -d '{}'
-curl.exe -X POST localhost:8001/pause  -d '{}'
-```
-
-## Run ingestion (Phase 3)
-
-MQTT → Pydantic validation → InfluxDB. Needs `docker compose up -d` first.
-
-```powershell
-.\.venv\Scripts\pip install -r ingestion\requirements.txt
-.\.venv\Scripts\python -m ingestion.mqtt_consumer      # terminal 1 (only when the backend is NOT running)
-.\.venv\Scripts\python simulator\main.py               # terminal 2
-```
-
-The backend (Phase 4) runs this consumer itself, so normally you don't start it separately.
-
-Every 10 s the consumer prints `messages ok=… rejected=… written_to_influx=…`. Check the data:
-
-```powershell
-curl.exe "http://localhost:8181/api/v3/query_sql?db=hotel&format=pretty&q=SELECT+time,location,temp_c,hvac_on+FROM+room+ORDER+BY+time+DESC+LIMIT+5"
-curl.exe "http://localhost:8181/api/v3/query_sql?db=hotel&format=pretty&q=SELECT+location,count(*)+FROM+cold_chain+GROUP+BY+location"
-```
-
-| Influx table | Tags | Fields |
-|---|---|---|
-| `room` | device_id, location (room no.), area | temp_c, setpoint_c, humidity_rh, occupied, vacant_min, hvac_on, hvac_kw, pms_sold, battery_pct |
-| `water` | device_id, location (zone), area | flow_lpm, leak_wet, battery_pct |
-| `cold_chain` | device_id, location (unit), area | temp_c, door_open, safe_min_c, safe_max_c, battery_pct |
-
-Timestamps are the **simulated** time from the payload, not the time of arrival.
-
-## Run the backend (Phase 4)
-
-Everything in Docker:
-```powershell
-docker compose up -d --build        # mosquitto, influxdb, backend (:8000), simulator
-```
-
-Or locally (with Mosquitto + InfluxDB from compose):
-```powershell
-.\.venv\Scripts\pip install -r backend\requirements.txt httpx
-.\.venv\Scripts\python -m uvicorn backend.app.main:app --reload   # terminal 1
-.\.venv\Scripts\python simulator\main.py                          # terminal 2
-```
-
-Interactive API docs: http://localhost:8000/docs
-
-| Endpoint | What |
+| File | Checks |
 |---|---|
-| `GET /api/snapshot` | everything the dashboard needs in one call |
-| `GET /api/rooms` · `/api/rooms/{room}` · `/api/rooms/{room}/history` | Demo 1 |
-| `GET /api/water` · `/api/water/history` | Demo 2 (total + per-zone flow, last 60 min) |
-| `GET /api/cold-chain` · `/api/cold-chain/{unit}/history` | Demo 3 |
-| `GET /api/alerts?status=open` · `POST /api/alerts/{id}/ack` | AI alerts (filled from Phase 7) |
-| `GET /api/notifications` | WhatsApp / SMS log (filled from Phase 8) |
-| `GET /api/sim/status` · `POST /api/sim/faults` · `/api/sim/clear` · `/api/sim/pause` | demo fault buttons (off when `DEMO_MODE=false`) |
-| `WS /ws` | live push: `snapshot` on connect, then `reading`, `summary` (≤1/s), `alert`, `notification` |
+| `test_simulator.py` | normal day stays in range; each fault shows in the data; fault API rejects bad input |
+| `test_ingestion.py` | every simulator message passes the schemas; 8 kinds of bad message are rejected; exact line protocol |
+| `test_backend.py` | API views, statuses, KPIs, acknowledge, WebSocket snapshot, fault endpoints |
+| `test_rules.py` | every rule fires exactly at its threshold, not before; alert text matches the brief |
+| `test_detector.py` | simulator → AI → alerts: 3 quiet hours raise at most one stray warning; leak dedupe + escalation + resolve; ack stops escalation; forecast warns before the breach; AC + offline detected |
+| `test_notifier.py` | notifications name the right section, room/unit and roles; no duplicates; escalation to GM |
 
-```powershell
-curl.exe -X POST localhost:8000/api/sim/faults -H "Content-Type: application/json" -d '{\"type\":\"leak\"}'
-curl.exe localhost:8000/api/water
-```
-
-## Dashboard (Phase 5)
-
-Everything in Docker: `docker compose up -d --build`, then open **http://localhost:8080**.
-
-Live-editing the UI (backend still from compose or uvicorn on :8000):
-```powershell
-cd frontend
-npm install
-npm run dev          # http://localhost:5173, proxies /api and /ws to :8000
-```
-
-Layout: header (live pill, hotel clock, stream count, theme toggle) → fault simulator (demo mode) → 6 KPI tiles →
-Demo 1 floor map + room detail with 60-min temperature chart → Demo 2 total-flow chart + zone table →
-Demo 3 cold units with safe-band sparklines → right rail: AI fault feed + management notification log.
-Charts are hand-built SVG (`src/components/LineChart.jsx`, hover for exact values). Light/dark follows the OS;
-the ☾/☀ button overrides it.
-
-Statuses: rooms `guest_in / sold_out / unsold / wasting / fault / offline`, water `ok / high / leak / offline`,
-cold `ok / at_risk / door_open / breach / offline` (`no_data` until the first reading).
-Live state and the last 60 minutes are kept in memory; InfluxDB holds the full history.
+The ML pipeline has its own reproducible evaluation (`cd ml; python evaluate.py`), and `python ml/forecast.py` self-checks.
 
 ## Configuration
 
 | File | Purpose |
 |---|---|
-| `config/devices.yaml` | rooms, water zones, cold units, safe bands, HVAC parameters |
-| `config/alert_rules.yaml` | rule thresholds, severities, forecast horizon, escalation time |
-| `config/contacts.yaml` | manager roles and routing; phone numbers come from `.env` |
-| `.env` | API keys and phone numbers (never committed) |
+| `config/devices.yaml` | rooms, water zones (normal flow), cold units (safe bands), HVAC parameters, ₹/kWh |
+| `config/alert_rules.yaml` | rule thresholds, severities, anomaly settings, escalation + auto-resolve times |
+| `config/contacts.yaml` | manager roles and who gets which category; phone numbers only via `.env` |
+| `.env` | settings and (later) API keys / phone numbers; never committed. Keep comments on their own line |
 
-MQTT topics: `dt/hotel/{property}/{area}/{location}/{device_id}/{metric}`,
-e.g. `dt/hotel/blr01/floor2/207/thermo-207/telemetry`.
+## Developer guide
+
+<details>
+<summary>Run parts locally, simulator CLI, InfluxDB queries, API endpoints</summary>
+
+**Backend locally** (Mosquitto + InfluxDB from compose; stop the Docker backend first so port 8000 is free):
+```powershell
+docker compose up -d mosquitto influxdb
+docker compose stop backend simulator
+.\.venv\Scripts\python -m uvicorn backend.app.main:app --reload   # terminal 1 (from the repo root)
+.\.venv\Scripts\python simulator\main.py                          # terminal 2
+cd frontend; npm install; npm run dev                             # terminal 3 → http://localhost:5173
+```
+
+**Simulator** (`1 tick = 1 hotel minute`, default every 2 s):
+```powershell
+.\.venv\Scripts\python simulator\main.py --stdout --ticks 2        # print messages, no broker needed
+.\.venv\Scripts\python simulator\main.py --fault leak:laundry --start 2026-10-24T22:00
+```
+
+| Fault (`--fault type[:target]`) | Default target | Effect |
+|---|---|---|
+| `leak` | `laundry` | flow +2x normal, leak probe wet after 2 min |
+| `compressor_failure` | `walkin` | compressor stops, temperature climbs ~0.1 °C/min |
+| `door_left_open` | `pastry` | door stays open, temperature climbs |
+| `hvac_stuck_on` | `207` | room empty but AC keeps cooling |
+| `sensor_offline` | `cold-bar` | device stops publishing |
+
+**Standalone ingestion** (only when the backend is *not* running, otherwise data is written twice):
+`.\.venv\Scripts\python -m ingestion.mqtt_consumer`
+
+**InfluxDB** (tables `room`, `water`, `cold_chain`; tags `device_id`, `location`, `area`; time = hotel time):
+```powershell
+curl.exe "http://localhost:8181/api/v3/query_sql?db=hotel&format=pretty&q=SELECT+time,location,temp_c,hvac_on+FROM+room+ORDER+BY+time+DESC+LIMIT+5"
+```
+
+**API** (interactive docs: http://localhost:8000/docs)
+
+| Endpoint | What |
+|---|---|
+| `GET /api/snapshot` | everything the dashboard needs in one call |
+| `GET /api/rooms` · `/api/rooms/{room}` · `/api/rooms/{room}/history` | Demo 1 |
+| `GET /api/water` · `/api/water/history` | Demo 2 |
+| `GET /api/cold-chain` · `/api/cold-chain/{unit}/history` | Demo 3 |
+| `GET /api/alerts?status=open` · `POST /api/alerts/{id}/ack` | AI alerts |
+| `GET /api/notifications` | notifications to management |
+| `GET /api/sim/status` · `POST /api/sim/faults` · `/api/sim/clear` · `/api/sim/pause` | fault buttons (off when `DEMO_MODE=false`) |
+| `WS /ws` | `snapshot` on connect, then `reading`, `summary` (≤1/s), `alert`, `notification` |
+
+**ML pipeline:** see [ml/README.md](ml/README.md). After retraining, rebuild the backend image
+(`docker compose up -d --build backend`). It must use the same scikit-learn version (pinned in
+`backend/requirements.txt`).
+
+</details>
 
 ## Datasets
 
-Raw data is not committed. Recreate `ml/data/raw/` with:
-
-```powershell
-python ml/download_datasets.py           # UCI + NAB, ~4 MB
-python ml/download_datasets.py --lbnl    # + LBNL fan-coil FDD, ~530 MB
-```
+Raw data is not committed. Recreate with `python ml/download_datasets.py` (UCI + NAB, ~4 MB) and `--lbnl` (~530 MB).
 
 | Dataset | Used for | Licence | Source |
 |---|---|---|---|
-| UCI Occupancy Detection (20,560 rows: temp, humidity, light, CO2, occupancy) | Demo 1 realistic room/occupancy patterns | CC BY 4.0 | [UCI #357](https://archive.ics.uci.edu/dataset/357/occupancy+detection) |
-| NAB `machine_temperature_system_failure` + labelled anomaly windows | Testing the anomaly model and breach forecast on a real failure | MIT | [numenta/NAB](https://github.com/numenta/NAB) |
-| LBNL FDD — fan coil unit (simulated, faulted + fault-free) | Demo 1 HVAC fault validation (hotel rooms usually run on FCUs) | CC BY 4.0 | [data.gov](https://catalog.data.gov/dataset/lbnl-fault-detection-and-diagnostics-datasets) · [faultdetection.lbl.gov](https://faultdetection.lbl.gov/) |
-| ASHRAE Great Energy Predictor III | Building energy baselines (optional) | Kaggle competition rules | [Kaggle](https://www.kaggle.com/competitions/ashrae-energy-prediction/data) — needs a Kaggle account and accepting the rules; download manually into `ml/data/raw/ashrae/` |
+| UCI Occupancy Detection | calibrating simulated room physics against real room sensors | CC BY 4.0 | [UCI #357](https://archive.ics.uci.edu/dataset/357/occupancy+detection) |
+| NAB machine temperature + labelled windows | testing Isolation Forest on a real equipment failure | MIT | [numenta/NAB](https://github.com/numenta/NAB) |
+| LBNL FDD, fan coil unit | testing Random Forest on real labelled HVAC faults | CC BY 4.0 | [data.gov](https://catalog.data.gov/dataset/lbnl-fault-detection-and-diagnostics-datasets) · [faultdetection.lbl.gov](https://faultdetection.lbl.gov/) |
+| ASHRAE Great Energy Predictor III | not used (needs a Kaggle account) | Kaggle rules | [Kaggle](https://www.kaggle.com/competitions/ashrae-energy-prediction/data) |
 
-Citation for LBNL: Granderson et al., "Building fault detection data to aid diagnostic algorithm creation and
-performance testing", *Scientific Data* 7, 65 (2020).
+LBNL citation: Granderson et al., "Building fault detection data to aid diagnostic algorithm creation and
+performance testing", *Scientific Data* 7, 65 (2020). Water leaks and cold-chain faults use synthetic data,
+because public leak datasets (LeakDB, BattLeDIM) model city pipe networks, not buildings.
 
-Water leaks (Demo 2) and cold-chain faults use synthetic data (`ml/generate_synthetic.py`, Phase 6), because the
-public leak datasets (LeakDB, BattLeDIM) model city pipe networks rather than buildings.
+## Limits and what production would need
 
-## Notifications in India
+- **Demo security:** InfluxDB runs `--without-auth`, MQTT is anonymous without TLS, and the dashboard has no
+  login. All are marked `TODO (production)` in the code.
+- **Memory-only live state:** alerts and notifications are lost when the backend restarts, and the charts refill
+  in about 2 minutes. A HACCP audit trail would need them stored (SQLite / InfluxDB).
+- **InfluxDB writes:** if InfluxDB is down, that batch is dropped rather than queued.
+- **Synthetic faults:** they are cleaner than real ones. Real readings from ESP32 sensors are the next step.
+- **WhatsApp / SMS on hold:** the message text (`notifier/templates.py`) and routing (`config/contacts.yaml`) are
+  ready; sending would be one more listener on the alert manager. In India, business SMS needs **TRAI DLT
+  registration** (sender ID + each template), and WhatsApp business-initiated messages need **Meta-approved
+  templates**.
 
-- **DRY_RUN is on by default** (`NOTIFY_DRY_RUN=true`): messages are logged, not sent.
-- Business SMS in India requires **TRAI DLT registration** (entity, sender ID/header and each message template)
-  before carriers deliver it — this applies to both Twilio and MSG91 traffic to Indian numbers.
-- WhatsApp Cloud API: business-initiated messages (outside the 24-hour customer window) must use
-  **Meta-approved message templates**. Free-form text works only as a reply within 24 h of the user's last message.
+## More screenshots
+
+| Dark theme | Phone |
+|---|---|
+| ![Dark theme](docs/screenshots/dashboard-dark.png) | ![Phone layout](docs/screenshots/phone.png) |
+
+Normal operation: [docs/screenshots/dashboard.png](docs/screenshots/dashboard.png).

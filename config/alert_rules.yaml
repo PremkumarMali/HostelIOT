@@ -34,6 +34,8 @@ rules:
     category: room_energy
     fault_type: hvac_stuck_on
     vacant_min: 15           # setback should have happened at 10
+    below_setpoint_c: 1.0    # ... and still cooling this far below the setpoint (a working thermostat stops at 0.5;
+    duration_min: 3          #     one reading of overshoot is normal, 3 in a row is a stuck relay)
     severity: warning
     action: "Set the room to setback; check the thermostat relay."
 
@@ -46,14 +48,17 @@ rules:
 
   battery_low:
     category: sensor_offline
-    fault_type: sensor_offline
+    fault_type: battery_low
     battery_pct_below: 15
     severity: warning
     action: "Replace the sensor battery."
 
 anomaly:                     # Layer 2: Isolation Forest
   # score threshold is learned per model (99.9th percentile of normal scores), see ml/train_anomaly.py
-  min_consecutive: 2         # readings in a row before alerting
+  min_consecutive: 5         # readings in a row before alerting (2 let the daily 06:00 water ramp through)
+  # Isolation-Forest-only alerts per demo. Off for rooms: there the evaluation showed precision 0.34
+  # (rare-but-normal cooling patterns), while rules + Random Forest already catch every room fault.
+  alert_demos: [water, cold]
 
 forecast:                    # Layer 3: linear trend (parameters live in ml/forecast.py)
   window_readings: 8
@@ -62,6 +67,7 @@ forecast:                    # Layer 3: linear trend (parameters live in ml/fore
 
 escalation:
   critical_unacked_min: 10   # then SMS the General Manager
+  resolve_after_min: 5       # an alert closes itself after this many minutes without the fault being seen
 
 notifications:
   max_per_alert_per_recipient: 1   # plus one escalation

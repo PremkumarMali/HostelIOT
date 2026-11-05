@@ -2,10 +2,10 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 
-const METHOD = { rule: 'Rule', anomaly: 'Anomaly model', forecast: 'Forecast', classifier: 'Fault classifier' }
+const METHOD = { rule: 'Rule', anomaly: 'Isolation Forest', forecast: 'Trend forecast', classifier: 'Random Forest' }
 const hhmm = (ts) => ts.slice(11, 16)
 
-function AlertCard({ a }) {
+function AlertCard({ a, onOpen }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   async function ack() {
@@ -26,6 +26,10 @@ function AlertCard({ a }) {
         <span className={`sev sev--${a.severity}`}>{a.severity === 'critical' ? '! Critical' : '▲ Warning'}</span>
         <span className="alert__time num">{hhmm(a.ts)}</span>
       </div>
+      <button type="button" className="note__where note__where--link" onClick={() => onOpen(a)} title="Show on the dashboard">
+        <span className="note__section">{a.section}</span>
+        <span className="note__loc">{a.location}</span>
+      </button>
       <div className="alert__title">{a.title}</div>
       <div className="alert__detail">{a.detail}</div>
       <div className="alert__conf">
@@ -37,8 +41,9 @@ function AlertCard({ a }) {
       </div>
       <div className="alert__action"><strong>Action:</strong> {a.action}</div>
       <div className="alert__meta">
-        <span className="chip">{METHOD[a.method] || a.method}</span>
+        {a.method.split('+').map((m) => <span key={m} className="chip">{METHOD[m] || m}</span>)}
         <span className="chip chip--mono">{a.source}</span>
+        {a.escalated && <span className="chip chip--crit">▲ Escalated to GM</span>}
       </div>
       {a.status === 'open' ? (
         <button type="button" className="btn btn--primary btn--block" onClick={ack} disabled={busy}>
@@ -52,11 +57,13 @@ function AlertCard({ a }) {
   )
 }
 
-export default function AlertFeed({ alerts, streams }) {
-  // open alerts first, then newest first
-  const list = Object.values(alerts).sort(
-    (x, y) => (y.status === 'open') - (x.status === 'open') || y.ts.localeCompare(x.ts),
-  )
+export default function AlertFeed({ alerts, streams, onOpen }) {
+  // open first, then acknowledged, newest first; only the 5 most recent resolved ones stay visible
+  const rank = { open: 0, acknowledged: 1, resolved: 2 }
+  const all = Object.values(alerts).sort((x, y) => rank[x.status] - rank[y.status] || y.ts.localeCompare(x.ts))
+  const active = all.filter((a) => a.status !== 'resolved')
+  const resolved = all.filter((a) => a.status === 'resolved')
+  const list = [...active, ...resolved.slice(0, 5)]
   if (!list.length) {
     return (
       <div className="empty">
@@ -66,5 +73,11 @@ export default function AlertFeed({ alerts, streams }) {
       </div>
     )
   }
-  return <ul className="alerts" aria-live="polite">{list.map((a) => <AlertCard key={a.id} a={a} />)}</ul>
+  return (
+    <>
+      {!active.length && <div className="alerts__clear">✓ No open faults · last resolved below</div>}
+      <ul className="alerts" aria-live="polite">{list.map((a) => <AlertCard key={a.id} a={a} onOpen={onOpen} />)}</ul>
+      {resolved.length > 5 && <div className="footnote">{resolved.length - 5} older resolved alerts not shown</div>}
+    </>
+  )
 }

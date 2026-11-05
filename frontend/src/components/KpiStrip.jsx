@@ -30,7 +30,7 @@ export default function KpiStrip({ summary: s }) {
       <Tile label="Open alerts" value={s.open_alerts}
         sub={s.critical_alerts ? `${s.critical_alerts} critical` : 'none critical'}
         tone={s.critical_alerts ? 'critical' : s.open_alerts ? 'warning' : null} />
-      <Tile label="Messages sent" value={s.messages_sent} sub="WhatsApp + SMS to managers" />
+      <Tile label="Notifications" value={s.messages_sent} sub="to managers, on this dashboard" />
     </section>
   )
 }

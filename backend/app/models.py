@@ -16,18 +16,32 @@ class Alert(BaseModel):
     category: str                  # water / cold_chain / room_energy / sensor_offline (routing key)
     action: str                    # suggested action for staff
     source: str                    # device_id
+    section: str = ""              # dashboard section: "Guest rooms" / "Water & leaks" / "Kitchen cold chain"
+    location: str = ""             # where exactly: "Room 207 · Floor 2", "Laundry · Basement"
+    room: str | None = None        # room number when the fault is in a guest room
     ts: datetime
     status: Literal["open", "acknowledged", "resolved"] = "open"
     acked_by: str | None = None
     acked_at: datetime | None = None
+    escalated: bool = False        # critical, not acknowledged in time -> General Manager informed
+    updated_at: datetime | None = None
+    resolved_at: datetime | None = None
 
 
 class Notification(BaseModel):
+    """A message to hotel management. Shown on the dashboard now; WhatsApp / SMS are on hold
+    (same text, other channels later)."""
     id: str
     alert_id: str
-    channel: Literal["whatsapp", "sms"]
-    recipient: str                 # role, e.g. "Chief Engineer"
-    to_masked: str                 # "+91 98xxxxxx21"; the full number never leaves the notifier
-    text: str
-    status: Literal["queued", "sent", "delivered", "failed"]
+    event: Literal["new", "upgraded", "escalated", "acknowledged", "resolved"]
+    severity: Literal["critical", "warning", "info", "resolved"]
+    channel: Literal["dashboard", "whatsapp", "sms"] = "dashboard"
+    recipients: list[str]          # roles who should act, e.g. ["Chief Engineer", "General Manager"]
+    section: str                   # "Water & leaks"
+    location: str                  # "Laundry · Basement"
+    room: str | None = None
+    device_id: str
+    title: str                     # "Water leak: Laundry"
+    text: str                      # full message (same text a WhatsApp would carry)
+    status: Literal["queued", "sent", "delivered", "failed"] = "delivered"
     ts: datetime

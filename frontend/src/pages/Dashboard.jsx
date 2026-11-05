@@ -1,5 +1,5 @@
 // The one-page operations console: header, fault simulator, KPIs, the three demos, and the AI rail.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLiveData } from '../hooks/useLiveData'
 import AlertFeed from '../components/AlertFeed.jsx'
 import ColdChainPanel from '../components/ColdChainPanel.jsx'
@@ -8,11 +8,12 @@ import FloorMap from '../components/FloorMap.jsx'
 import KpiStrip from '../components/KpiStrip.jsx'
 import NotificationLog from '../components/NotificationLog.jsx'
 import RoomDetail from '../components/RoomDetail.jsx'
+import Toasts from '../components/Toasts.jsx'
 import WaterPanel from '../components/WaterPanel.jsx'
 
-function Panel({ eyebrow, title, meta, children, className = '' }) {
+function Panel({ id, eyebrow, title, meta, children, className = '' }) {
   return (
-    <section className={`panel ${className}`} aria-label={title}>
+    <section id={id} className={`panel ${className}`} aria-label={title}>
       <header className="panel__head">
         <div>
           {eyebrow && <div className="eyebrow">{eyebrow}</div>}
@@ -56,6 +57,17 @@ export default function Dashboard() {
   const [room, setRoom] = useState('207')
   useEffect(() => { loadRoomHistory(room) }, [room, loadRoomHistory])
 
+  // Jump from a notification / alert to the place on the dashboard where the fault is
+  const [focus, setFocus] = useState(null)
+  const open = useCallback((item) => {
+    const device = item.device_id || item.source
+    if (item.room) setRoom(item.room)
+    const target = { 'Guest rooms': 'sec-rooms', 'Water & leaks': 'sec-water', 'Kitchen cold chain': 'sec-cold' }[item.section]
+    document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setFocus(device)
+    setTimeout(() => setFocus((f) => (f === device ? null : f)), 4000)
+  }, [])
+
   const s = live.summary
   const [time, date] = hotelClock(s?.sim_time)
   const openAlerts = Object.values(live.alerts).filter((a) => a.status === 'open').length
@@ -90,12 +102,13 @@ export default function Dashboard() {
         </div>
       </header>
 
+      <Toasts notifications={live.notifications} onOpen={open} />
       <FaultBar />
       <KpiStrip summary={s} />
 
       <div className="layout">
         <main className="main">
-          <Panel eyebrow="Demo 1 · continuous readings" title="Smart room energy" className="panel--rooms"
+          <Panel id="sec-rooms" eyebrow="Demo 1 · continuous readings" title="Smart room energy" className="panel--rooms"
             meta={wasting ? <span className="meta-warn">▲ {wasting} room{wasting > 1 ? 's' : ''} wasting energy</span> : '20 rooms · 2 floors'}>
             <div className="demo1">
               <FloorMap rooms={live.rooms} selected={room} onSelect={setRoom} />
@@ -105,23 +118,23 @@ export default function Dashboard() {
           </Panel>
 
           <div className="demo23">
-            <Panel eyebrow="Demo 2 · event alarms" title="Water & leaks"
+            <Panel id="sec-water" eyebrow="Demo 2 · event alarms" title="Water & leaks"
               meta={leaks ? <span className="meta-crit">! {leaks} leak{leaks > 1 ? 's' : ''}</span> : '5 zones'}>
-              <WaterPanel water={live.water} history={live.history} />
+              <WaterPanel water={live.water} history={live.history} focus={focus} />
             </Panel>
-            <Panel eyebrow="Demo 3 · HACCP compliance" title="Kitchen cold chain"
+            <Panel id="sec-cold" eyebrow="Demo 3 · HACCP compliance" title="Kitchen cold chain"
               meta={coldIssues ? <span className="meta-crit">! {coldIssues} unit{coldIssues > 1 ? 's' : ''} need attention</span> : '5 units'}>
-              <ColdChainPanel cold={live.cold} history={live.history} />
+              <ColdChainPanel cold={live.cold} history={live.history} focus={focus} />
             </Panel>
           </div>
         </main>
 
         <aside className="rail">
           <Panel eyebrow="AI layer" title="Fault detection" meta={`${openAlerts} open`}>
-            <AlertFeed alerts={live.alerts} streams={s?.streams} />
+            <AlertFeed alerts={live.alerts} streams={s?.streams} onOpen={open} />
           </Panel>
-          <Panel eyebrow="Escalation" title="Management notifications" meta="WhatsApp · SMS">
-            <NotificationLog notifications={live.notifications} />
+          <Panel eyebrow="To hotel management" title="Notifications" meta="On dashboard · WhatsApp/SMS on hold">
+            <NotificationLog notifications={live.notifications} onOpen={open} />
           </Panel>
         </aside>
       </div>

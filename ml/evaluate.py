@@ -5,7 +5,8 @@
 Part A - synthetic 7-day test set, per fault type and detection method:
   An ALERT = a run of flagged minutes on one device (gaps up to 10 min merged), like the
   alert manager will raise. A method flags a minute when:
-    anomaly     Isolation Forest score above its threshold 2 readings in a row (type-agnostic:
+    anomaly     Isolation Forest score above its threshold N readings in a row, N from
+                config/alert_rules.yaml anomaly.min_consecutive (type-agnostic:
                 precision counts an alert as correct if ANY fault is active on that device)
     classifier  Random Forest predicts a fault 2 readings in a row (the alert carries that type)
     forecast    trend line predicts a cold-chain breach within 30 min (cold units only)
@@ -29,6 +30,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+import yaml
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.metrics import classification_report, f1_score
 
@@ -40,7 +42,10 @@ ML = Path(__file__).resolve().parent
 RAW = ML / "data" / "raw"
 MERGE_GAP = 10          # flagged minutes closer than this belong to one alert
 GRACE = 30              # minutes after a fault ends that are forgiven
-CONSECUTIVE = 2
+CONSECUTIVE = 2         # Random Forest / forecast: same answer 2 readings in a row
+# Isolation Forest alerts use the live engine's setting, so the report matches what the dashboard does
+ANOMALY_CONSECUTIVE = yaml.safe_load((ML.parent / "config" / "alert_rules.yaml").read_text(encoding="utf-8"))[
+    "anomaly"]["min_consecutive"]
 SILENT_MIN = 3
 TEST_DAYS = 7
 report = []
@@ -56,10 +61,12 @@ def minutes(ts):
     return (pd.to_datetime(ts.str.slice(0, 19)) - pd.Timestamp("2026-09-01")).dt.total_seconds() // 60
 
 
-def consecutive(flags, device):
-    """True where this and the previous reading of the same device are flagged."""
-    prev = flags.groupby(device).shift(1, fill_value=False)
-    return flags & prev
+def consecutive(flags, device, n=CONSECUTIVE):
+    """True where this and the previous n-1 readings of the same device are all flagged."""
+    out = flags.copy()
+    for k in range(1, n):
+        out &= flags.groupby(device).shift(k, fill_value=False)
+    return out
 
 
 def alerts_from(df, flags, kind=None):
@@ -124,7 +131,8 @@ def part_a():
         episodes = ep[ep["demo"] == demo]
 
         an = joblib.load(ML / "models" / f"anomaly_{demo}.joblib")
-        flag_an = consecutive(pd.Series(anomaly_score(an, X) > an["threshold"], index=df.index), df["device_id"])
+        flag_an = consecutive(pd.Series(anomaly_score(an, X) > an["threshold"], index=df.index), df["device_id"],
+                              ANOMALY_CONSECUTIVE)
         clf = joblib.load(ML / "models" / f"classifier_{demo}.joblib")
         df["pred"] = clf["model"].predict(X[clf["features"]])
         is_fault = df["pred"] != "normal"

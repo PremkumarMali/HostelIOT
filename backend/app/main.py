@@ -12,10 +12,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from backend.app.ai import detection_loop, manager
 from backend.app.api import alerts, cold_chain, rooms, simulator, water
 from backend.app.db import store
 from backend.app.websocket import hub, router as ws_router, summary_loop
 from ingestion import mqtt_consumer
+from notifier.dashboard import DashboardNotifier
 from ingestion.influx_writer import InfluxWriter
 
 
@@ -42,9 +44,15 @@ async def lifespan(app):
     client = None
     if os.getenv("MQTT_ENABLED", "true").lower() != "false":
         client = mqtt_consumer.start(Sink(), client_id="hotel-backend")
-    task = asyncio.create_task(summary_loop())
+    # every alert change goes to the dashboards; important ones also become notifications
+    # (dashboard channel; WhatsApp / SMS are on hold and would be one more listener here)
+    manager.listeners.append(lambda event, a: hub.send({"type": "alert", "event": event, "data": a.model_dump(mode="json")}))
+    manager.listeners.append(DashboardNotifier(store, hub.send, manager.escalation.seconds // 60))
+    tasks = [asyncio.create_task(summary_loop()), asyncio.create_task(detection_loop())]
     yield
-    task.cancel()
+    for task in tasks:
+        task.cancel()
+    manager.listeners.clear()
     if client:
         client.loop_stop()
         client.disconnect()
