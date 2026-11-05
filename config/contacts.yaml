@@ -1,0 +1,36 @@
+# Management contacts and alert routing.
+# Phone numbers are NOT stored here: phone_env names the .env variable.
+
+contacts:
+  general_manager:
+    name: General Manager
+    phone_env: PHONE_GENERAL_MANAGER
+  chief_engineer:
+    name: Chief Engineer
+    phone_env: PHONE_CHIEF_ENGINEER
+  executive_chef:
+    name: Executive Chef
+    phone_env: PHONE_EXECUTIVE_CHEF
+  duty_manager:
+    name: Duty Manager
+    phone_env: PHONE_DUTY_MANAGER
+  it_manager:
+    name: IT Manager
+    phone_env: PHONE_IT_MANAGER
+
+# category -> list of {contact, channels, only_if_severity (optional)}
+routing:
+  water:
+    - {contact: chief_engineer, channels: [whatsapp, sms]}
+    - {contact: general_manager, channels: [sms], only_if_severity: critical}
+  cold_chain:
+    - {contact: executive_chef, channels: [whatsapp]}
+    - {contact: chief_engineer, channels: [sms]}
+  room_energy:
+    - {contact: duty_manager, channels: [whatsapp]}
+    - {contact: chief_engineer, channels: [whatsapp]}
+  sensor_offline:
+    - {contact: it_manager, channels: [whatsapp]}
+    - {contact: executive_chef, channels: [whatsapp]}
+  escalation:
+    - {contact: general_manager, channels: [sms]}

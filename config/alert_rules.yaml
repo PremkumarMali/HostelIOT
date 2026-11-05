@@ -1,0 +1,67 @@
+# Thresholds used by ai_engine (Phase 7). Durations are in simulated minutes.
+
+rules:
+  cold_out_of_band:          # Layer 1: fridge outside safe band
+    category: cold_chain
+    fault_type: compressor_failure
+    duration_min: 3
+    severity: critical
+    action: "Move stock to a backup unit and call refrigeration service."
+
+  cold_door_open:
+    category: cold_chain
+    fault_type: door_left_open
+    duration_min: 5
+    severity: warning
+    action: "Close the door and check the seal."
+
+  leak_probe_wet:            # event: immediate alarm
+    category: water
+    fault_type: leak
+    duration_min: 0
+    severity: critical
+    action: "Isolate the zone valve and send maintenance."
+
+  water_flow_high:
+    category: water
+    fault_type: leak
+    factor_over_normal: 2.0  # flow > 2x normal ...
+    duration_min: 5          # ... for 5 min
+    severity: warning
+    action: "Inspect the zone for running taps or leaks."
+
+  hvac_vacant_running:       # AC on in empty room
+    category: room_energy
+    fault_type: hvac_stuck_on
+    vacant_min: 15           # setback should have happened at 10
+    severity: warning
+    action: "Set the room to setback; check the thermostat relay."
+
+  sensor_silent:
+    category: sensor_offline
+    fault_type: sensor_offline
+    silent_min: 3
+    severity: warning
+    action: "Check device power, battery and Wi-Fi."
+
+  battery_low:
+    category: sensor_offline
+    fault_type: sensor_offline
+    battery_pct_below: 15
+    severity: warning
+    action: "Replace the sensor battery."
+
+anomaly:                     # Layer 2: Isolation Forest
+  # score threshold is learned per model (99.9th percentile of normal scores), see ml/train_anomaly.py
+  min_consecutive: 2         # readings in a row before alerting
+
+forecast:                    # Layer 3: linear trend (parameters live in ml/forecast.py)
+  window_readings: 8
+  horizon_min: 30            # warn if breach predicted within this
+  severity: warning
+
+escalation:
+  critical_unacked_min: 10   # then SMS the General Manager
+
+notifications:
+  max_per_alert_per_recipient: 1   # plus one escalation

@@ -1,0 +1,66 @@
+# Mosquitto + InfluxDB + backend (API, WebSocket, ingestion) + simulator + frontend (dashboard).
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+
+  influxdb:
+    image: influxdb:3-core
+    restart: unless-stopped
+    # --without-auth: no token needed on the local demo.
+    # TODO (production): drop it and create a token with `influxdb3 create token --admin`.
+    command: >
+      influxdb3 serve
+      --node-id hotel0
+      --object-store file
+      --data-dir /home/influxdb3/.influxdb3
+      --without-auth
+    ports:
+      - "8181:8181"
+    volumes:
+      - influx-data:/home/influxdb3/.influxdb3
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:              # container hostnames override the localhost values in .env
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      INFLUX_HOST: http://influxdb:8181
+      SIMULATOR_URL: http://simulator:8001
+    ports:
+      - "8000:8000"
+    depends_on: [mosquitto, influxdb]
+
+  simulator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile   # same image, different command
+    restart: unless-stopped            # retries until Mosquitto accepts connections
+    command: python simulator/main.py
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      SIM_HTTP_HOST: 0.0.0.0           # reachable by the backend; port is NOT published to the host
+    depends_on: [mosquitto]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"                      # dashboard: http://localhost:8080
+    depends_on: [backend]
+
+volumes:
+  mosquitto-data:
+  influx-data:

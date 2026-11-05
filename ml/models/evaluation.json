@@ -1,0 +1,113 @@
+{
+  "synthetic": {
+    "hvac_stuck_on/anomaly (IF)": {
+      "episodes": 21,
+      "recall": 1.0,
+      "precision": 0.3442622950819672,
+      "f1": 0.5121951219512195,
+      "false_alarms_per_day": 5.714285714285714,
+      "median_delay_min": 6.0
+    },
+    "hvac_stuck_on/classifier (RF)": {
+      "episodes": 21,
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1": 1.0,
+      "false_alarms_per_day": 0.0,
+      "median_delay_min": 13.0
+    },
+    "leak/anomaly (IF)": {
+      "episodes": 14,
+      "recall": 0.6428571428571429,
+      "precision": 0.65,
+      "f1": 0.6464088397790057,
+      "false_alarms_per_day": 1.0,
+      "median_delay_min": 1.0
+    },
+    "leak/classifier (RF)": {
+      "episodes": 14,
+      "recall": 0.9285714285714286,
+      "precision": 1.0,
+      "f1": 0.962962962962963,
+      "false_alarms_per_day": 0.0,
+      "median_delay_min": 1.0
+    },
+    "compressor_failure/anomaly (IF)": {
+      "episodes": 7,
+      "recall": 0.7142857142857143,
+      "precision": 0.8076923076923077,
+      "f1": 0.7581227436823106,
+      "false_alarms_per_day": 0.7142857142857143,
+      "median_delay_min": 30.0
+    },
+    "door_left_open/anomaly (IF)": {
+      "episodes": 14,
+      "recall": 1.0,
+      "precision": 0.8076923076923077,
+      "f1": 0.8936170212765957,
+      "false_alarms_per_day": 0.7142857142857143,
+      "median_delay_min": 4.0
+    },
+    "compressor_failure/classifier (RF)": {
+      "episodes": 7,
+      "recall": 1.0,
+      "precision": 0.5833333333333334,
+      "f1": 0.7368421052631579,
+      "false_alarms_per_day": 0.7142857142857143,
+      "median_delay_min": 9.0
+    },
+    "door_left_open/classifier (RF)": {
+      "episodes": 14,
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1": 1.0,
+      "false_alarms_per_day": 0.0,
+      "median_delay_min": 4.0
+    },
+    "compressor_failure/forecast (trend)": {
+      "episodes": 7,
+      "recall": 0.7142857142857143,
+      "precision": 1.0,
+      "f1": 0.8333333333333333,
+      "false_alarms_per_day": 0.0,
+      "median_delay_min": 9.0,
+      "lead_min": 8.0
+    },
+    "sensor_offline/heartbeat rule": {
+      "episodes": 14,
+      "recall": 1.0,
+      "precision": 1.0,
+      "f1": 1.0,
+      "false_alarms_per_day": 0.0,
+      "median_delay_min": 3.0
+    }
+  },
+  "nab": {
+    "windows": 4,
+    "caught": 3,
+    "false_alarms_per_day": 0.13445378151260504
+  },
+  "lbnl": {
+    "macro_f1": 0.834596633445472,
+    "per_class_f1": {
+      "fault_free": 0.8485552115583075,
+      "cooling_valve_stuck_open": 1.0,
+      "cooling_valve_leak": 0.8867144481955552,
+      "filter_restriction": 0.6469672815607682,
+      "coil_fouling": 0.6356687226527492,
+      "room_sensor_bias": 0.989674136705451
+    },
+    "if_flag_rate": {
+      "coil_fouling": 0.0020380434782608695,
+      "cooling_valve_leak": 0.010907306763285024,
+      "cooling_valve_stuck_open": 0.03940217391304348,
+      "fault_free": 0.008340881642512078,
+      "filter_restriction": 0.0024532004830917875,
+      "room_sensor_bias": 0.006302838164251208
+    }
+  },
+  "uci": {
+    "real_median_step_c": 0.032912140272925994,
+    "sim_median_step_c": 0.020728731949809506
+  }
+}

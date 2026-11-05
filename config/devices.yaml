@@ -1,0 +1,84 @@
+# Device inventory for property blr01 (Bengaluru).
+# MQTT topic: dt/hotel/{property}/{area}/{location}/{device_id}/{metric}
+
+property:
+  id: blr01
+  name: "Grand Residency Bengaluru"   # demo name
+  timezone: Asia/Kolkata
+  currency: INR
+  energy_cost_per_kwh: 9.0
+
+# ---------- Demo 1: smart room energy ----------
+# Each room has one thermostat with built-in occupancy sensor.
+# device_id = thermo-{room}, area = floor{n}, location = {room}
+rooms:
+  floors:
+    floor1: [101, 102, 103, 104, 105, 106, 107, 108, 109, 110]
+    floor2: [201, 202, 203, 204, 205, 206, 207, 208, 209, 210]
+  hvac:
+    cooling_kw: 1.1             # draw per room while cooling
+    setpoint_c: 22.5            # occupied comfort setpoint
+    setback_c: 26.0             # setpoint once vacant
+    setback_after_vacant_min: 10
+  comfort_band_c: [20.0, 26.0]
+
+# ---------- Demo 2: water & leaks ----------
+water_zones:
+  - id: laundry
+    name: Laundry
+    device_id: water-laundry
+    area: basement
+    normal_flow_lpm: 9.0
+  - id: kitchen
+    name: Kitchen
+    device_id: water-kitchen
+    area: kitchen
+    normal_flow_lpm: 6.0
+  - id: guest_floors
+    name: Guest floors
+    device_id: water-guestfloors
+    area: riser
+    normal_flow_lpm: 11.0
+  - id: pool_plant
+    name: Pool plant
+    device_id: water-pool
+    area: outdoor
+    normal_flow_lpm: 4.0
+  - id: boiler_room
+    name: Boiler room
+    device_id: water-boiler
+    area: basement
+    normal_flow_lpm: 1.5
+
+# ---------- Demo 3: kitchen cold chain ----------
+cold_units:
+  - id: walkin
+    name: Walk-in chiller
+    device_id: cold-walkin
+    area: kitchen
+    safe_min_c: 0
+    safe_max_c: 5
+  - id: blast
+    name: Blast freezer
+    device_id: cold-blast
+    area: kitchen
+    safe_min_c: -22
+    safe_max_c: -18
+  - id: bar
+    name: Bar fridge
+    device_id: cold-bar
+    area: bar
+    safe_min_c: 1
+    safe_max_c: 5
+  - id: pastry
+    name: Pastry fridge
+    device_id: cold-pastry
+    area: kitchen
+    safe_min_c: 0
+    safe_max_c: 5
+  - id: minibar
+    name: Minibar (room 207)
+    device_id: cold-minibar-207
+    area: floor2
+    safe_min_c: 2
+    safe_max_c: 8

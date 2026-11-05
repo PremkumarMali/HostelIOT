@@ -1,0 +1,17 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+node_modules/
+dist/
+
+# Large / downloaded data and trained models
+ml/data/raw/*
+ml/data/synthetic/*
+ml/data/processed/*
+ml/models/*.joblib
+!ml/data/**/.gitkeep
+.gstack/
+.claude/settings.local.json

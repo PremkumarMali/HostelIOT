@@ -1,0 +1,9 @@
+# Keep the build context small (ml/data alone is ~5 GB)
+.git
+.venv
+.claude
+**/__pycache__
+**/node_modules
+ml/data
+ml/models
+.env
